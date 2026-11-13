@@ -1,0 +1,5 @@
+@echo off
+rem Backup: dashboard with synthetic traffic, no victim shop needed.
+cd /d "%~dp0"
+start http://127.0.0.1:8000
+python -m detector.main --demo

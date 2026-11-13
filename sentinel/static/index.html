@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel Log Guard</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">Sentinel<small>Automata-based log attack detector</small></div>
+  <span class="pill" id="conn"><i></i><span>connecting…</span></span>
+  <div class="seg" title="Protected mode makes the victim shop consult the same automata before handling each request">
+    <button id="m-vuln" class="vuln on">Vulnerable shop</button><button id="m-prot" class="prot">Protected shop</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="s-req">0</b><span>requests</span></div>
+    <div class="stat bad"><b id="s-atk">0</b><span>attacks flagged</span></div>
+    <div class="stat"><b id="s-ips">0</b><span>source IPs</span></div>
+    <div class="stat"><b id="s-lat">–</b><span>avg detect latency</span></div>
+  </div>
+  <a class="btn" style="text-decoration:none" href="/api/report.csv"><button class="btn">Export CSV</button></a>
+  <button class="btn" onclick="window.print()">Print report</button>
+</header>
+
+<nav class="tabs">
+  <button data-tab="live" class="on">Live monitor</button>
+  <button data-tab="lab">Regex → DFA lab</button>
+  <button data-tab="cmp">Compare machines</button>
+  <button data-tab="theory">Theory</button>
+</nav>
+
+<main>
+<!-- ============================ LIVE ============================ -->
+<section class="tab on" id="tab-live">
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h3>Live log stream <span class="sp">
+          <label><input type="checkbox" id="follow" checked> auto-follow attacks</label>
+          <button class="btn" id="pause">Pause</button></span></h3>
+        <div class="filters">
+          <span class="chip on" data-f="all">All</span><span class="chip" data-f="atk">Attacks only</span>
+          <input type="text" id="q" placeholder="filter text / IP" style="width:170px">
+          <span style="margin-left:auto;font-size:12px;color:var(--mute)" id="src"></span>
+        </div>
+        <div id="logs"></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>Attack simulator <span class="sp" id="simnote"></span></h3>
+        <div class="sim" id="sim"></div>
+        <p style="margin:10px 0 0;font-size:12px;color:var(--mute)">Or attack the shop by hand at <b>http://127.0.0.1:5000</b>. Try <code>admin'--</code> as username, or <code>&lt;b&gt;&lt;i&gt;x&lt;/i&gt;&lt;/b&gt;</code> in the search box.</p>
+      </div>
+    </div>
+
+    <div class="card" id="machine">
+      <h3>Automaton <span class="sp"><span class="badge" id="m-class"></span></span></h3>
+      <div class="filters" id="chips"></div>
+      <div id="m-desc" style="color:var(--mute);font-size:12.5px;margin-bottom:8px"></div>
+      <div id="m-flag"></div>
+      <div id="m-body"></div>
+      <div class="strip" id="strip" style="display:none"></div>
+      <div class="ctl" id="ctl">
+        <button class="btn" id="b-first">⏮</button><button class="btn" id="b-prev">◀</button>
+        <button class="btn primary" id="b-play">▶ Play</button>
+        <button class="btn" id="b-next">▶|</button><button class="btn" id="b-last">⏭</button>
+        <input type="range" id="scrub" min="0" max="0" value="0">
+        <select id="speed" class="btn"><option value="1">1×</option><option value="2">2×</option><option value="0.5">0.5×</option></select>
+      </div>
+      <div class="readout" id="readout"></div>
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="card"><h3>Alerts <span class="sp" id="alert-n"></span></h3><div id="alerts"></div></div>
+    <div class="card"><h3>Attacks by type</h3><div id="bytype"></div><h3 style="margin-top:14px">Top attacker IPs</h3><div id="topips"></div></div>
+    <div class="card"><h3>Traffic (last 2 min)</h3><svg id="timeline" width="100%" height="110"></svg>
+      <h3 style="margin-top:14px">Banned IPs <span class="sp"><button class="btn" id="unblock">Unblock all</button></span></h3><div id="bans"><span style="color:var(--mute)">none</span></div></div>
+  </div>
+</section>
+
+<!-- ============================ REGEX LAB ============================ -->
+<section class="tab" id="tab-lab">
+  <div class="card" style="margin-top:14px">
+    <h3>Regex → NFA → DFA → minimal DFA</h3>
+    <p style="margin:0 0 10px;color:var(--mute)">Every signature the detector uses is a regular language, so it can be compiled to a DFA. Type any pattern (supports <code>| * + ? ( ) [a-z] [^x] .</code>) and watch the three constructions.</p>
+    <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:10px">
+      <input type="text" id="re-pat" value="(a|b)*abb"><input type="text" id="re-sample" value="aabb" placeholder="test string">
+      <button class="btn primary" id="re-go">Build</button>
+    </div>
+    <div id="re-err" style="color:var(--red);margin-top:6px"></div>
+    <div class="ctl" style="margin-top:10px" id="re-ctl" hidden>
+      <button class="btn primary" id="re-play">▶ Run test string on the minimal DFA</button><span id="re-result"></span>
+    </div>
+  </div>
+  <div class="lab">
+    <div class="card"><h3>NFA (Thompson) <span class="sp" id="c-nfa"></span></h3><div class="gwrap" id="g-nfa"></div></div>
+    <div class="card"><h3>DFA (subset construction) <span class="sp" id="c-dfa"></span></h3><div class="gwrap" id="g-dfa"></div></div>
+    <div class="card"><h3>Minimal DFA <span class="sp" id="c-min"></span></h3><div class="gwrap" id="g-min"></div><div id="re-table"></div></div>
+  </div>
+</section>
+
+<!-- ============================ COMPARE ============================ -->
+<section class="tab" id="tab-cmp">
+  <div class="card" style="margin-top:14px">
+    <h3>Which machine catches which payload?</h3>
+    <p style="margin:0 0 10px;color:var(--mute)">Type or pick a payload. It is sent as a search query through every machine. Payloads that only the pushdown automaton or the grammar flag show why a DFA alone is not enough.</p>
+    <div class="sim" id="presets" style="margin-bottom:10px"></div>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:10px"><input type="text" id="cmp-in" value="x' and (select (select 1))=1 and 'a'='a"><button class="btn primary" id="cmp-go">Inspect</button></div>
+    <div id="cmp-out"></div>
+  </div>
+</section>
+
+<!-- ============================ THEORY ============================ -->
+<section class="tab" id="tab-theory">
+  <div class="two">
+    <div class="card prose">
+      <h2>Why more than a DFA?</h2>
+      <p>A DFA has finitely many states and no memory, so it can recognise exactly the <b>regular</b> languages. Fixed keywords such as <code>union select</code> and bounded counters ("5 failed logins in a row") are regular.</p>
+      <p>Matching brackets <code>((…))</code> and matching tags <code>&lt;a&gt;&lt;b&gt;&lt;/b&gt;&lt;/a&gt;</code> are not. The language <code>{ (ⁿ )ⁿ }</code> fails the pumping lemma: pump the opening brackets and the string no longer balances. A finite-state machine cannot count unbounded depth, but a <b>pushdown automaton</b> can, using its stack.</p>
+      <p>A <b>context-free grammar</b> describes the structure of an injected SQL condition (<code>' OR (1=1 AND (2=2)) --</code>); the parse tree is the proof that the text is a valid injected expression.</p>
+    </div>
+    <div class="card prose">
+      <h2>Which attack uses which machine</h2>
+      <table class="cmp">
+        <tr><th>Attack</th><th>Language</th><th>Machine</th></tr>
+        <tr><td>Fixed keywords (<code>union select</code>, <code>../</code>, <code>&lt;script</code>)</td><td>Regular</td><td>DFA (Aho-Corasick)</td></tr>
+        <tr><td>5 failed logins in a row</td><td>Regular</td><td>Counter DFA per IP</td></tr>
+        <tr><td>Burst of 404s from one IP</td><td>Regular</td><td>Counter DFA per IP</td></tr>
+        <tr><td>Nested sub-queries, unclosed brackets</td><td>Context-free</td><td>PDA (stack = depth)</td></tr>
+        <tr><td>Nested / mismatched HTML tags</td><td>Context-free</td><td>PDA (stack = open tags)</td></tr>
+        <tr><td>Injected boolean condition <code>' OR (…)</code></td><td>Context-free</td><td>CFG + recursive-descent parser</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="card prose" style="margin-top:14px">
+    <h2>Chomsky hierarchy, as used here</h2>
+    <table class="cmp">
+      <tr><th>Class</th><th>Machine</th><th>Memory</th><th>In this project</th></tr>
+      <tr><td>Type 3 – Regular</td><td>DFA / NFA</td><td>none (current state only)</td><td>Signature scanners, brute-force and scan counters, regex lab</td></tr>
+      <tr><td>Type 2 – Context-free</td><td>PDA / CFG</td><td>one stack</td><td>Bracket and tag nesting, SQL injection grammar</td></tr>
+      <tr><td>Type 1/0</td><td>LBA / Turing machine</td><td>tape</td><td>Not needed: no detection here requires it</td></tr>
+    </table>
+    <p style="margin-top:10px">Pipeline per request: <code>log line → parse → URL-decode (up to 3×) → lower-case → every machine in parallel → alerts</code>. Per-IP DFAs additionally keep one state per source address and reset on a 60 s silence (symbol <code>T</code>).</p>
+  </div>
+</section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
